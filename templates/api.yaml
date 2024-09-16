@@ -1,0 +1,148 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "api.name" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "devportal.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.api.replicas }}
+  selector:
+    matchLabels:
+      {{- include "api.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels:
+        {{- include "api.selectorLabels" . | nindent 8 }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ template "devportal.serviceAccountName" . }}
+      initContainers:
+{{- if .Values.api.tls.secretName }}
+        # copy-tls-files is a workaround for https://github.com/kubernetes/kubernetes/issues/81089
+        - name: copy-tls-files-server-tls
+          image: busybox
+          command:
+            - "sh"
+            - "-c"
+            - | 
+              ls -al /certs
+              cp /certs/* ${CERTS_MOUNT_PATH}/ 
+              chown 1000:1000 ${CERTS_MOUNT_PATH}/* 
+              chmod 0600 ${CERTS_MOUNT_PATH}/*
+          volumeMounts:
+            - name: certs
+              mountPath: {{ template "devportal.api.certs.mountPath" . }}
+            - name: certs-pre-install-server-tls
+              mountPath: /certs
+              readOnly: true
+          env:
+            - name: CERTS_MOUNT_PATH
+              value: {{ template "devportal.api.certs.mountPath" . }}
+{{- end }}
+{{- if and (eq .Values.api.db.type "psql") (include "api.db.tlsSecretName" .) }}
+        # copy-tls-files is a workaround for https://github.com/kubernetes/kubernetes/issues/81089
+        - name: copy-tls-files-db-tls
+          image: busybox
+          command:
+            - "sh"
+            - "-c"
+            - | 
+              ls -al /certs-db
+              mkdir -p ${CERTS_MOUNT_PATH}
+              cp /certs-db/* ${CERTS_MOUNT_PATH}/
+              chown 1000:1000 ${CERTS_MOUNT_PATH}/* 
+              chmod 0600 ${CERTS_MOUNT_PATH}/*
+              ls -al ${CERTS_MOUNT_PATH}
+          volumeMounts:
+            - name: certs
+              mountPath: {{ template "devportal.api.certs.mountPath" . }}
+            - name: certs-pre-install-db-tls
+              mountPath: /certs-db
+              readOnly: true
+          env:
+            - name: CERTS_MOUNT_PATH
+              value: "{{ template "devportal.api.certs.mountPath" . }}/db"
+{{- end }}
+{{- if eq .Values.api.db.type "psql" }}
+        - name: wait-for-postgres
+          image: busybox
+          command: ['sh', '-c', 'until nc -vz {{ template "api.dbHost" . }} {{ template "api.dbPort" . }}; do echo "Waiting for postgres at {{ template "api.dbHost" . }}:{{ template "api.dbPort" .  }}..."; sleep 3; done;']
+{{- end }}
+{{- if eq .Values.api.db.type "sqlite" }}
+        - name: change-mount-ownership
+          image: busybox
+          command: [ '/bin/sh', '-c']
+          args: ['chown -R 1000:1000 /var/lib/nginx-devportal']
+          volumeMounts:
+            - name: sqlite
+              mountPath: /var/lib/nginx-devportal
+{{- end }}
+{{- if and (gt (.Values.api.replicas | int) 1) (eq .Values.api.db.type "sqlite") }}
+{{- fail "Cannot have db type as sqlite and more than one api replica" }}
+{{- end }}
+      containers:
+        - name: api
+          image: "{{ .Values.api.image.repository }}:{{ .Values.api.image.tag }}"
+          imagePullPolicy: {{ .Values.api.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ template "api.containerHttpPort" . }}
+              protocol: TCP
+          env:
+              # api specific env variable
+              {{- include "api.env" . | nindent 12 }}
+          resources:
+            {{- toYaml .Values.api.resources | nindent 12 }}
+          volumeMounts:
+{{- if eq .Values.api.db.type "sqlite" }}
+            - name: sqlite
+              mountPath: /var/lib/nginx-devportal
+{{- end }}
+{{- if or (and (eq .Values.api.db.type "psql") (include "api.db.tlsSecretName" .) ) .Values.api.tls.secretName }}
+            - name: certs
+              mountPath: {{ template "devportal.api.certs.mountPath" . }}
+{{- end }}
+{{ if and .Values.api.acm.client.caSecret.name .Values.api.acm.client.caSecret.key }}
+            - name: devportal-acm-ca-cert
+              mountPath: "/etc/ssl/certs/{{ .Values.api.acm.client.caSecret.key }}"
+              subPath: "{{ .Values.api.acm.client.caSecret.key }}"
+{{- end }}
+      volumes:
+{{- if eq .Values.api.db.type "sqlite" }}
+        - name: sqlite
+          persistentVolumeClaim:
+            claimName: "sqlite-storage"
+{{- end }}
+        - name: certs
+          emptyDir: {}
+{{- if and (eq .Values.api.db.type "psql") (ne (include "api.db.tlsSecretName" .) "") }}
+        - name: certs-pre-install-db-tls
+          projected:
+            sources:
+              - secret:
+                  name: {{ include "api.db.tlsSecretName" . -}}
+{{- end }}
+{{- if .Values.api.tls.secretName }}
+        - name: certs-pre-install-server-tls
+          projected:
+            sources:
+{{- if not (lookup "v1" "Secret" .Release.Namespace .Values.api.tls.secretName) -}}
+{{- fail (printf "A valid .Values.api.tls.secretName Secret is required!  Cannot find secret/%s in namespace/%s" .Values.api.tls.secretName .Release.Namespace) -}}
+{{- end }}
+              - secret:
+                  name: {{ .Values.api.tls.secretName }}
+{{- end }}
+{{ if and .Values.api.acm.client.caSecret.name .Values.api.acm.client.caSecret.key }}
+        - name: devportal-acm-ca-cert
+          secret:
+            secretName: {{ .Values.api.acm.client.caSecret.name }}
+            defaultMode: 0644
+{{- end }}

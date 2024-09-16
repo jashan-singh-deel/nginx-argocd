@@ -1,0 +1,49 @@
+{{- if .Values.api.persistence.enabled }}
+{{- if not .Values.api.db.external }}
+{{- if not .Values.api.persistence.claims.existingClaim }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "api.dbType" . }}-storage
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "devportal.labels" . | nindent 4 }}
+spec:
+  accessModes:
+    - {{ .Values.api.persistence.claims.accessMode }}
+  resources:
+    requests:
+      storage: {{ .Values.api.persistence.claims.size }}
+  {{- include "devportal.storageClass" . | nindent 2 }}
+  volumeMode: Filesystem
+  {{- if .Values.api.persistence.claims.volumeName }}
+  volumeName: {{ .Values.api.persistence.claims.volumeName }}
+  {{- end }}
+{{- end }}
+{{- end }}
+{{- end }}
+
+{{- if .Values.apigw.persistence.enabled }}
+{{- if not .Values.apigw.persistence.claims.existingClaim }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: nginx-storage
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "devportal.labels" . | nindent 4 }}
+spec:
+  accessModes:
+    - {{ .Values.api.persistence.claims.accessMode }}
+  resources:
+    requests:
+      storage: {{ .Values.api.persistence.claims.size }}
+  {{- include "devportal.storageClass" . | nindent 2 }}
+  volumeMode: Filesystem
+  {{- if .Values.apigw.persistence.claims.volumeName }}
+  volumeName: {{ .Values.apigw.persistence.claims.volumeName }}
+  {{- end }}
+{{- end }}
+{{- end }}

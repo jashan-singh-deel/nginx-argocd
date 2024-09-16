@@ -1,0 +1,100 @@
+# Default values for devportal.
+# This is a YAML-formatted file.
+# Declare variables to be passed into your templates.
+
+
+serviceAccount:
+  name: "devportal"
+  annotations: {}
+
+# Use imagePullSecret to pass secret resources to pull all docker images from private registry.
+# https://kubernetes.io/docs/tasks/configure-pod-container/pull-image-private-registry/:
+imagePullSecrets: []
+  # - name: "your-image-pull-secret"
+
+nameOverride: "devportal"
+fullnameOverride: "devportal"
+
+apigw:
+  name: apigw
+  image:
+    # if the image is on a private registry, provide imagePullSecrets
+    repository: apigw
+    tag: latest
+    pullPolicy: IfNotPresent
+  service:
+    port: 80
+    annotations: {}
+  container:
+    port: 80
+  controlPlane:
+    host: "127.0.0.1"
+    instanceGroup: "devportal"
+  resources:
+    requests:
+      # These are minimum requirements on node to run apigw
+      # There are no limits in place, so vertically scale as per data needs
+      cpu: 125m
+      memory: 128Mi
+  ingress:
+    enabled: false
+    host: "localhost"
+  persistence:
+    enabled: true
+    ## A manually managed Persistent Volume and Claim
+    ## Requires persistence.enabled: true
+    ## If existingClaim is defined, PVC must be created manually before volume will be bound
+    claims:
+      existingClaim: false
+      size: 250Mi
+      accessMode: ReadWriteOnce
+
+api:
+  name: api
+  logLevel: info
+  image:
+    # if the image is on a private registry, provide imagePullSecrets
+    repository: api
+    tag: latest
+    pullPolicy: IfNotPresent
+  replicas: 1
+  service:
+    port: 8080
+  container:
+    port: 8080
+  resources:
+    requests:
+      # These are minimum requirements on node to run api
+      # There are no limits in place, so vertically scale as per data needs
+      cpu: 125m
+      memory: 128Mi
+  tls:
+    secretName:
+    clientValidation: false
+    clientNames:
+  acm:
+    client:
+      caSecret:
+        name:
+        key:
+  db:
+    type: psql
+    external: false
+    host: postgres.devportal.svc
+    port: 5432
+    name: devportal
+    user: nginxdm
+    pass: nginxdm
+    tls:
+      verifyMode: "require"
+      # Paths to tls certificate/keys files to be loaded into secrets
+      secretName:
+  persistence:
+    enabled: true
+    ## A manually managed Persistent Volume and Claim
+    ## Requires persistence.enabled: true
+    ## If existingClaim is defined, PVC must be created manually before volume will be bound
+    claims:
+      existingClaim: false
+      size: 250Mi
+      accessMode: ReadWriteOnce

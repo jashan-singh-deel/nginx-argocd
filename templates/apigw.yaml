@@ -1,0 +1,48 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "apigw.name" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "devportal.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "apigw.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels:
+        {{- include "apigw.selectorLabels" . | nindent 8 }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        fsGroup: 1000
+      serviceAccountName: {{ template "devportal.serviceAccountName" . }}
+      containers:
+        - name: apigw
+          image: "{{ .Values.apigw.image.repository }}:{{ .Values.apigw.image.tag }}"
+          imagePullPolicy: {{ .Values.apigw.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ template "apigw.containerHttpPort" . }}
+              protocol: TCP
+          env:
+              # core specific env variable
+              {{- include "apigw.env" . | nindent 12 }}
+          resources:
+            {{- toYaml .Values.apigw.resources | nindent 12 }}
+          volumeMounts:
+            - name: nginx-cache
+              mountPath: /var/cache/nginx
+      volumes:
+        - name: nginx-cache
+          persistentVolumeClaim:
+            claimName: "nginx-storage"

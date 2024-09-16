@@ -1,0 +1,60 @@
+{{/* api-gw service ... */}}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ template "apigw.name" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "devportal.labels" . | nindent 4 }}
+{{- with .Values.apigw.service.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+{{- end }}
+spec:
+  type: LoadBalancer
+  ports:
+    - port: {{ template "apigw.serviceHttpPort" . }}
+      protocol: TCP
+      name: apigw
+    - port: 81
+      protocol: TCP
+      name: apigw-int
+  selector:
+    {{- include "apigw.selectorLabels" . | nindent 4 }}
+
+{{/* api service ... */}}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ template "api.name" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "devportal.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  ports:
+    - port: {{ template "api.serviceHttpPort" . }}
+      protocol: TCP
+      name: api
+  selector:
+    {{- include "api.selectorLabels" . | nindent 4 }}
+
+{{/* api database service ... */}}
+{{- if and (not .Values.api.db.external) (eq .Values.api.db.type "psql") }}
+---
+apiVersion: "v1"
+kind: "Service"
+metadata:
+  name: "postgres"
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "devportal.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  ports:
+    - port: {{ template "api.dbPort" . }}
+  selector:
+    {{- include "api.db.selectorLabels" . | nindent 4 }}
+{{ end }}
